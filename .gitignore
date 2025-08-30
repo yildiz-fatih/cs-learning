@@ -18,3 +18,6 @@ out/production/**/javalib/*.jar
 # Other
 *.log
 .DS_Store
+
+# Python stuff
+__pycache__/

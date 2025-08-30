@@ -77,7 +77,10 @@ class DVRouter(DVRouterBase):
         assert port in self.ports.get_all_ports(), "Link should be up, but is not."
 
         ##### Begin Stage 1 #####
-
+        self.table[host] = TableEntry(dst=host,
+                                      port=port,
+                                      latency=self.ports.get_latency(port),
+                                      expire_time=FOREVER)
         ##### End Stage 1 #####
 
     def handle_data_packet(self, packet, in_port):
@@ -92,7 +95,11 @@ class DVRouter(DVRouterBase):
         """
         
         ##### Begin Stage 2 #####
+        entry = self.table.get(packet.dst)
+        if entry is None or entry.latency >= INFINITY:
+            return
 
+        self.send(packet, port=entry.port)
         ##### End Stage 2 #####
 
     def send_routes(self, force=False, single_port=None):
@@ -108,7 +115,17 @@ class DVRouter(DVRouterBase):
         """
         
         ##### Begin Stages 3, 6, 7, 8, 10 #####
+        for port in self.ports.get_all_ports():
+            for host, entry in self.table.items():
+                if self.POISON_REVERSE and entry.port == port:
+                    self.send_route(port, host, INFINITY)
+                    continue
 
+                if self.SPLIT_HORIZON and entry.port == port:
+                    continue
+
+                latency = INFINITY if entry.latency > INFINITY else entry.latency
+                self.send_route(port, host, latency)
         ##### End Stages 3, 6, 7, 8, 10 #####
 
     def expire_routes(self):
@@ -118,7 +135,21 @@ class DVRouter(DVRouterBase):
         """
         
         ##### Begin Stages 5, 9 #####
-
+        if self.POISON_EXPIRED:
+            for host, entry in self.table.items():
+                if entry.expire_time <= api.current_time():
+                    self.table[host] = TableEntry(dst=entry.dst,
+                                                  port=entry.port,
+                                                  latency=INFINITY,
+                                                  expire_time=api.current_time()+self.ROUTE_TTL)
+        else:
+            to_remove = []
+            for host, entry in self.table.items():
+                if entry.expire_time <= api.current_time():
+                    to_remove.append(host)
+            
+            for host in to_remove:
+                self.table.pop(host)
         ##### End Stages 5, 9 #####
 
     def handle_route_advertisement(self, route_dst, route_latency, port):
@@ -132,7 +163,14 @@ class DVRouter(DVRouterBase):
         """
         
         ##### Begin Stages 4, 10 #####
+        current_entry = self.table.get(route_dst)
+        advertised_total_latency = route_latency + self.ports.get_latency(port)
 
+        if current_entry is None or current_entry.port == port or advertised_total_latency < current_entry.latency:
+            self.table[route_dst] = TableEntry(dst=route_dst,
+                                               port=port,
+                                               latency=advertised_total_latency,
+                                               expire_time=api.current_time()+self.ROUTE_TTL)
         ##### End Stages 4, 10 #####
 
     def handle_link_up(self, port, latency):
