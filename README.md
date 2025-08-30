@@ -54,5 +54,6 @@ Projects from the courses
 - [2048](./cs61b/proj0-2048) — 2048 game logic in Java
 - [Deque](./cs61b/proj1-guitar-hero) — Double-ended queue implementation using linked lists and arrays
 - [Traceroute](./cs168/cs168-sp25-proj1-traceroute) — Traceroute implementation in Python
+- [Routing](./cs168/cs168-sp25-proj2-routing) — Distance-vector routing protocol implemented in Python
 
 ---
