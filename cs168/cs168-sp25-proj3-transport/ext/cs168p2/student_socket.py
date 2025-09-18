@@ -565,7 +565,8 @@ class StudentUSocket(StudentUSocketBase):
     if (p.tcp.SYN or p.tcp.FIN or p.tcp.payload) and not retxed:
 
       ## Start of Stage 4.4 ##
-
+      if len(p.tcp.payload) > 0:
+        self.snd.nxt = self.snd.nxt |PLUS| len(p.tcp.payload)
       ## End of Stage 4.4 ##
       pass
 
@@ -600,12 +601,15 @@ class StudentUSocket(StudentUSocketBase):
                         CLOSE_WAIT, CLOSING, LAST_ACK, TIME_WAIT):
       if self.acceptable_seg(seg, payload):
         ## Start of Stage 2.1 ##
-        
+        # if seg.seq |EQ| self.rcv.nxt:
+        #   self.handle_accepted_seg(seg, payload)
+        # else:
+        #   self.set_pending_ack()
         ## End of Stage 2.1 ##
-        pass
+        
         ## Start of Stage 3.1 ##
         # you may need to remove Stage 2's code.
-
+        self.rx_queue.push(p)
         ## End of Stage 3.1 ##
       else:
         self.set_pending_ack()
@@ -614,7 +618,15 @@ class StudentUSocket(StudentUSocketBase):
     ## Start of Stage 3.2 ##
     # checking recv queue
     # Hint: data = packet.app[self.rcv.nxt |MINUS| packet.tcp.seq:]
-
+    while not self.rx_queue.empty():
+      s, p = self.rx_queue.peek()
+      if not (s |EQ| self.rcv.nxt):
+        self.set_pending_ack()
+        break
+      else:
+        s, p = self.rx_queue.pop()
+        data = p.app[(self.rcv.nxt |MINUS| p.tcp.seq):]
+        self.handle_accepted_seg(p.tcp, data)
     ## End of Stage 3.2 ##
 
     self.maybe_send()
@@ -687,7 +699,10 @@ class StudentUSocket(StudentUSocketBase):
       payload = payload[:rcv.wnd] # Chop to size!
 
     ## Start of Stage 2.3 ##
-
+    self.rcv.nxt = self.rcv.nxt |PLUS| len(payload)
+    self.rcv.wnd = self.rcv.wnd |MINUS| len(payload)
+    self.rx_data += payload
+    self.set_pending_ack()
     ## End of Stage 2.3 ##
 
   def update_window(self, seg):
@@ -699,7 +714,7 @@ class StudentUSocket(StudentUSocketBase):
     """
 
     ## Start of Stage 5.1 ##
-    self.snd.wnd = self.TX_DATA_MAX # remove when implemented
+    self.snd.wnd = seg.win
     self.snd.wl1 = seg.seq
     self.snd.wl2 = seg.ack
 
@@ -713,7 +728,7 @@ class StudentUSocket(StudentUSocketBase):
     acceptable_seg()
     """
     ## Start of Stage 4.2 ##
-
+    self.snd.una = seg.ack
     ## End of Stage 4.2 ##
 
 
@@ -766,7 +781,13 @@ class StudentUSocket(StudentUSocketBase):
     # fifth, check ACK field
     if self.state in (ESTABLISHED, FIN_WAIT_1, FIN_WAIT_2, CLOSE_WAIT, CLOSING):
       ## Start of Stage 4.1 ##
-
+      if seg.ack |GT| snd.nxt:
+          return False
+      elif seg.ack |GE| snd.una:
+          self.handle_accepted_ack(seg)
+          continue_after_ack = True
+      else:
+          continue_after_ack = False
       ## End of Stage 4.1 ##
 
       if snd.una |LE| seg.ack and seg.ack |LE| snd.nxt:
@@ -814,7 +835,8 @@ class StudentUSocket(StudentUSocketBase):
       return
 
     ## Start of Stage 2.2 ##
-
+    if self.state in (ESTABLISHED, FIN_WAIT_1, FIN_WAIT_2) and len(payload) > 0:
+      self.handle_accepted_payload(payload)
     ## End of Stage 2.2 ##
 
     # eight, check FIN bit
@@ -834,11 +856,31 @@ class StudentUSocket(StudentUSocketBase):
     bytes_sent = 0
 
     ## Start of Stage 4.3 ##
-    remaining = 0
-    while remaining > 0:
+    while self.tx_data:
+      right = snd.una |PLUS| snd.wnd
+
+      if right |LE| snd.nxt:
+          break
+
+      window_left = right |MINUS| snd.nxt
+
+      if window_left == 0:
+          break
+
+      to_send = min(self.mss, window_left, len(self.tx_data))
+
+      payload = self.tx_data[:to_send]
+
+      packet = self.new_packet(ack=True, data=payload, syn=False)
+      self.tx(packet)
+
+      self.tx_data = self.tx_data[to_send:]
 
       num_pkts += 1
-      bytes_sent += len(payload)
+      bytes_sent += to_send
+
+      num_pkts += 1
+      bytes_sent += to_send
 
     self.log.debug("sent {0} packets with {1} bytes total".format(num_pkts, bytes_sent))
     ## End of Stage 4.3 ##
