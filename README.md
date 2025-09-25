@@ -29,8 +29,7 @@
 - **Alternative(s):** [MIT 6.S081](https://pdos.csail.mit.edu/6.828/2021/schedule.html)
 
 **Computer Networking**
-- [Berkeley CS 168](https://sp25.cs168.io)
-- **Alternative(s):** [Stanford CS 144](https://cs144.github.io)
+- [✅ Berkeley CS 168](https://sp25.cs168.io) *(completed Sep 2025)*
 
 **Databases**
 - [Berkeley CS 186](https://learning.edge.edx.org/course/course-v1:BerkeleyX+CS186+2018_SP)
